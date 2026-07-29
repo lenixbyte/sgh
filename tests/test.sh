@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# sgh test suite. Runs against a throwaway $SGH_HOME with a stub `gh` on PATH,
-# so it never touches the real GitHub CLI, your keyring, or the network.
+# sgh test suite. Runs against a throwaway $SGH_HOME with a stub `gh` on PATH, so it
+# never touches the real GitHub CLI, your keyring, or the network.
 #
-#   tests/test.sh            run under the current shell
-#   SHELLS="bash zsh" tests/test.sh
+#   tests/test.sh                      run under bash and zsh
+#   SHELLS="bash zsh dash" tests/test.sh
+#
+# Each `s` call starts a fresh shell with the sgh hook installed — that is a terminal.
 # shellcheck disable=SC2016  # the single-quoted snippets are code for child shells
 set -u
 
@@ -47,6 +49,9 @@ export XDG_CONFIG_HOME="$SANDBOX/home/.config"
 export SGH_HOME="$SANDBOX/home/.config/sgh"
 mkdir -p "$XDG_CONFIG_HOME/gh" "$SANDBOX/bin"
 
+# The hook calls `command sgh`, so the executable has to be on PATH like a real install.
+ln -sf "$ROOT/bin/sgh" "$SANDBOX/bin/sgh"
+
 # A gh that records how it was called instead of talking to GitHub.
 cat >"$SANDBOX/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -63,8 +68,8 @@ export PATH="$SANDBOX/bin:$PATH"
 export SGH_CALLS="$SANDBOX/calls.log"
 : >"$SGH_CALLS"
 
-# An existing multi-account gh setup to import: one keyring-backed account and
-# one with the token written into hosts.yml.
+# An existing multi-account gh setup to import: one keyring-backed account and one with
+# the token written into hosts.yml.
 cat >"$XDG_CONFIG_HOME/gh/hosts.yml" <<'YML'
 github.com:
     git_protocol: https
@@ -80,14 +85,14 @@ github.acme.com:
 YML
 printf 'version: "1"\naliases:\n    co: pr checkout\n' >"$XDG_CONFIG_HOME/gh/config.yml"
 
-# ── run one shell's worth of tests ────────────────────────────────────
+# ── one shell's worth of tests ────────────────────────────────────────
 
 run_suite() {
 	local sh_bin="$1"
 	printf '\n\033[1m%s\033[0m\n' "$sh_bin"
 
-	# Each `s` call is a fresh shell = a fresh terminal.
-	s() { NO_COLOR=1 "$sh_bin" -c ". '$ROOT/sgh.sh'; $1" 2>&1; }
+	# A fresh shell with the hook installed = a fresh terminal.
+	s() { NO_COLOR=1 "$sh_bin" -c "eval \"\$(sgh init ${sh_bin##*/})\"; $1" 2>&1; }
 
 	rm -rf "$SGH_HOME"
 	: >"$SGH_CALLS" # each shell gets its own call log
@@ -104,10 +109,19 @@ run_suite() {
 
 	# zsh's nomatch would turn an empty profiles dir into a glob error here.
 	is "no profiles: nothing on stderr" "" \
-		"$(NO_COLOR=1 "$sh_bin" -c ". '$ROOT/sgh.sh'; sgh list; sgh who" 2>&1 >/dev/null)"
+		"$(NO_COLOR=1 "$sh_bin" -c "eval \"\$(sgh init ${sh_bin##*/})\"; sgh list; sgh who" 2>&1 >/dev/null)"
 
 	out="$(s 'sgh who')"
 	has "who with no profile" "No profile active" "$out"
+
+	# --- the hook itself ---
+	is "init output evals cleanly" "" \
+		"$("$sh_bin" -c "eval \"\$(sgh init ${sh_bin##*/})\"" 2>&1)"
+	has "init defines the wrapper" "command sgh" "$(sgh init "${sh_bin##*/}")"
+	out="$(sgh switch work-acct 2>&1)"
+	has "switch without the hook explains itself" "needs the shell hook" "$out"
+	is "switch without the hook exits non-zero" "1" \
+		"$(sgh switch work-acct >/dev/null 2>&1; printf '%s' "$?")"
 
 	# --- import ---
 	out="$(s 'sgh import')"
@@ -125,21 +139,25 @@ run_suite() {
 		"$(cat "$SGH_HOME/profiles/work-acct/gh/hosts.yml")"
 	has "gh settings seeded into profile" "pr checkout" \
 		"$(cat "$SGH_HOME/profiles/work-acct/gh/config.yml")"
-	is "import is idempotent" "0" \
-		"$(s 'sgh import' | grep -c 'import  ')"
+	is "import is idempotent" "0" "$(s 'sgh import' | grep -c 'import  ')"
 
 	# --- switch / who ---
 	out="$(s 'sgh switch work-acct; sgh who -q')"
 	is "switch then who -q" "work-acct" "$(printf '%s' "$out" | tail -n 1)"
+	has "switch reports the new account" "work-acct → work-acct" "$out"
 
-	out="$(s 'sgh switch work-acct; printf "%s" "$GH_CONFIG_DIR"')"
+	out="$(s 'sgh switch work-acct >/dev/null; printf "%s" "$GH_CONFIG_DIR"')"
 	has "switch exports GH_CONFIG_DIR" "profiles/work-acct/gh" "$out"
 
 	out="$(s 'sgh switch nope')"
 	has "unknown profile refused" "no such profile" "$out"
+	is "a failed switch changes nothing" "work-acct" \
+		"$(s 'sgh switch work-acct >/dev/null; sgh switch nope >/dev/null 2>&1; sgh who -q')"
+	is "a failed switch forwards the exit code" "1" \
+		"$(s 'sgh switch nope >/dev/null 2>&1; printf "%s" "$?"')"
 
-	out="$(s 'sgh switch work-acct; sgh switch none; sgh who -q')"
-	is "switch none clears" "" "$(printf '%s' "$out" | tail -n 1 | grep -v Unset)"
+	out="$(s 'sgh switch work-acct >/dev/null; sgh switch none')"
+	has "switch none clears" "No profile active" "$out"
 
 	out="$(s 'sgh list; sgh switch personal-acct >/dev/null; sgh list')"
 	has "list marks the active profile" "* personal-acct" "$out"
@@ -190,12 +208,8 @@ run_suite() {
 	# --- exec ---
 	out="$(s 'sgh exec ci -- printenv GH_CONFIG_DIR')"
 	has "exec scopes GH_CONFIG_DIR to the child" "profiles/ci/gh" "$out"
-	# `VAR=x cmd` would leak when cmd is a shell builtin, so exec uses a subshell.
 	is "exec leaves the shell's own profile alone" "work-acct" \
 		"$(s 'sgh switch work-acct >/dev/null; sgh exec ci -- true; sgh who -q')"
-	is "exec leaves GH_CONFIG_DIR alone" "same" \
-		"$(s 'b="${GH_CONFIG_DIR:-none}"; sgh exec ci -- true
-		     [ "$b" = "${GH_CONFIG_DIR:-none}" ] && echo same || echo changed')"
 	is "exec forwards the exit code" "7" \
 		"$(s 'sgh exec ci -- sh -c "exit 7"; printf "%s" "$?"')"
 	out="$(s 'sgh exec ci')"
@@ -219,13 +233,43 @@ run_suite() {
 	has "unknown command errors" "unknown command" "$out"
 	is "unknown command exits non-zero" "1" "$(s 'sgh nonsense >/dev/null 2>&1; printf "%s" "$?"')"
 
-	is "no stray variables leak into the shell" "" \
-		"$(s 'sgh list >/dev/null; printf "%s%s%s" "${name:-}" "${cmd:-}" "${f:-}"')"
+	# The hook evals generated code, so paths must survive quoting.
+	local spaced="$SANDBOX/sp ace/sgh"
+	SGH_HOME="$spaced" "$ROOT/bin/sgh" add spacey --link someone >/dev/null
+	is "a path with spaces survives the eval" "spacey" \
+		"$(SGH_HOME="$spaced" NO_COLOR=1 "$sh_bin" -c \
+			"eval \"\$(sgh init ${sh_bin##*/})\"; sgh switch spacey >/dev/null; sgh who -q")"
+	rm -rf "$SANDBOX/sp ace"
+
+	is "the hook leaves no stray variables" "" \
+		"$(s 'sgh switch work-acct >/dev/null; printf "%s%s" "${__sgh_code:-}" "${name:-}"')"
+}
+
+# fish is a different language, so it gets its own smoke test rather than the full suite.
+run_fish_suite() {
+	printf '\n\033[1mfish\033[0m\n'
+	rm -rf "$SGH_HOME"
+	"$ROOT/bin/sgh" add fish-acct --link fish-user >/dev/null
+
+	f() { NO_COLOR=1 fish -c "sgh init fish | source; $1" 2>&1; }
+
+	is "fish: init sources cleanly" "" "$(fish -c 'sgh init fish | source' 2>&1)"
+	is "fish: switch changes this shell" "fish-acct" \
+		"$(f 'sgh switch fish-acct >/dev/null; sgh who -q')"
+	has "fish: switch exports GH_CONFIG_DIR" "profiles/fish-acct/gh" \
+		"$(f 'sgh switch fish-acct >/dev/null; echo $GH_CONFIG_DIR')"
+	is "fish: switch none clears" "" \
+		"$(f 'sgh switch fish-acct >/dev/null; sgh switch none >/dev/null; sgh who -q')"
+	has "fish: unknown profile refused" "no such profile" "$(f 'sgh switch nope')"
+	has "fish: list works" "fish-acct" "$(f 'sgh list')"
 }
 
 printf '\033[1msgh test suite\033[0m\n'
 for shell in ${SHELLS:-bash zsh}; do
-	if command -v "$shell" >/dev/null 2>&1; then
+	if [ "$shell" = fish ]; then
+		command -v fish >/dev/null 2>&1 && run_fish_suite ||
+			printf '\n  (skipping fish — not installed)\n'
+	elif command -v "$shell" >/dev/null 2>&1; then
 		run_suite "$shell"
 	else
 		printf '\n  (skipping %s — not installed)\n' "$shell"
