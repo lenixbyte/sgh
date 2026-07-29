@@ -1,0 +1,50 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you run, what did you expect, and what did you get?
+      placeholder: |
+        $ sgh switch work
+        ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: sgh version
+      description: Output of `sgh version`
+      placeholder: sgh 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Shell
+      options: [zsh, bash, fish, other]
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: macOS 15.3 / Ubuntu 24.04 / WSL2
+    validations:
+      required: true
+  - type: input
+    id: gh
+    attributes:
+      label: gh version
+      description: Output of `gh --version`
+    validations:
+      required: true
+  - type: textarea
+    id: hook
+    attributes:
+      label: Shell hook
+      description: |
+        The sgh line in your shell rc, e.g. `eval "$(sgh init zsh)"`. Say if it is missing —
+        `switch` needs it and other commands do not.

@@ -1,0 +1,116 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release
+        required: true
+
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            tag="${{ github.event.inputs.tag }}"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Tag matches SGH_VERSION
+        run: |
+          in_script="$(sed -n 's/^SGH_VERSION="\(.*\)"$/\1/p' bin/sgh)"
+          if [ "$in_script" != "${{ steps.v.outputs.version }}" ]; then
+            echo "::error::tag ${{ steps.v.outputs.tag }} does not match SGH_VERSION ($in_script)"
+            exit 1
+          fi
+
+      - name: Build tarball
+        run: |
+          version="${{ steps.v.outputs.version }}"
+          stage="sgh-$version"
+          mkdir -p "$stage/bin" "$stage/completions" "$stage/docs"
+          cp bin/sgh "$stage/bin/"
+          cp -r docs/. "$stage/docs/"
+          cp README.md LICENSE CHANGELOG.md install.sh "$stage/"
+          for shell in bash zsh fish; do
+            ./bin/sgh completions "$shell" > "$stage/completions/sgh.$shell"
+          done
+          tar -czf "sgh-$version.tar.gz" "$stage"
+          sha256sum "sgh-$version.tar.gz" > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Extract release notes
+        run: |
+          version="${{ steps.v.outputs.version }}"
+          awk -v v="$version" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "No changelog entry for $version." > notes.md
+          fi
+          cat notes.md
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: sgh-${{ steps.v.outputs.version }}.tar.gz
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          body_path: notes.md
+          files: |
+            sgh-${{ steps.v.outputs.version }}.tar.gz
+            sha256sums.txt
+
+  homebrew:
+    name: bump homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    # Set SGH_TAP_TOKEN (a PAT with contents:write on the tap repo) to enable this.
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render and push the formula
+        env:
+          TAP_TOKEN: ${{ secrets.SGH_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "SGH_TAP_TOKEN not set — skipping tap bump."
+            exit 0
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v$version/sgh-$version.tar.gz"
+          curl -fsSL "$url" -o dist.tar.gz
+          sha="$(sha256sum dist.tar.gz | cut -d' ' -f1)"
+          sed -e "s|@URL@|$url|" -e "s|@SHA@|$sha|" -e "s|@VERSION@|$version|" \
+            packaging/homebrew/sgh.rb > sgh.rb
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/lenixbyte/homebrew-tap.git" tap
+          mkdir -p tap/Formula
+          cp sgh.rb tap/Formula/sgh.rb
+          cd tap
+          git config user.name lenixbyte
+          git config user.email 69056618+lenixbyte@users.noreply.github.com
+          git add Formula/sgh.rb
+          git diff --cached --quiet || git commit -m "sgh $version"
+          git push

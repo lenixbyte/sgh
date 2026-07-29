@@ -4,37 +4,104 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install linters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          sudo curl -fsSL "https://github.com/mvdan/sh/releases/download/v3.10.0/shfmt_v3.10.0_linux_amd64" -o /usr/local/bin/shfmt
+          sudo chmod +x /usr/local/bin/shfmt
+          curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin actionlint
+
+      - name: shellcheck
+        run: shellcheck bin/sgh install.sh tests/test.sh
+
+      - name: shfmt
+        run: shfmt -d bin/sgh install.sh tests/test.sh
+
+      - name: actionlint
+        run: actionlint
+
+      - name: Version is consistent
+        run: |
+          in_script="$(sed -n 's/^SGH_VERSION="\(.*\)"$/\1/p' bin/sgh)"
+          in_changelog="$(sed -n 's/^## \[\([0-9][^]]*\)\].*/\1/p' CHANGELOG.md | head -n 1)"
+          echo "bin/sgh: $in_script   CHANGELOG.md: $in_changelog"
+          if [ "$in_script" != "$in_changelog" ]; then
+            echo "::error::SGH_VERSION ($in_script) does not match the newest CHANGELOG entry ($in_changelog)"
+            exit 1
+          fi
+
   test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install shells
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y zsh dash shellcheck
+            sudo apt-get update
+            sudo apt-get install -y zsh dash fish
           else
-            brew install shellcheck
+            brew install fish
           fi
 
-      - name: Lint
-        run: shellcheck sgh.sh install.sh tests/test.sh
+      - name: Every shell can run the executable
+        run: |
+          for sh in sh bash zsh dash; do
+            command -v "$sh" >/dev/null || continue
+            printf '%-5s ' "$sh"; "$sh" bin/sgh version
+          done
 
-      - name: Test
-        run: SHELLS="bash zsh dash" tests/test.sh
+      - name: Test suite
+        run: SHELLS="bash zsh dash fish" tests/test.sh
 
       - name: Installer round-trip
         run: |
-          export HOME="$(mktemp -d)" SHELL=/bin/bash
+          HOME="$(mktemp -d)"
+          export HOME
+          export SHELL=/bin/bash
           touch "$HOME/.bashrc"
           ./install.sh
-          grep -q 'sgh.sh' "$HOME/.bashrc"
+          grep -q 'sgh init bash' "$HOME/.bashrc"
           bash -c '. "$HOME/.bashrc"; sgh version'
           ./install.sh --uninstall
-          ! grep -q 'sgh.sh' "$HOME/.bashrc"
+          if grep -q 'sgh init' "$HOME/.bashrc"; then
+            echo "::error::uninstall left the hook behind"; exit 1
+          fi
+          if [ -f "$HOME/.local/bin/sgh" ]; then
+            echo "::error::uninstall left the executable behind"; exit 1
+          fi
+
+      - name: Nothing personal in the tree
+        run: |
+          # Absolute home paths never belong in a published tree.
+          if grep -rnE '/(Users|home)/[a-z]' --exclude-dir=.git .; then
+            echo "::error::an absolute home path was committed"
+            exit 1
+          fi
+          # Any address outside this allowlist is almost certainly a real one.
+          found="$(grep -rhoE '[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}' \
+            --exclude-dir=.git . | sort -u | grep -vE \
+            '^(git@github\.com|TAP_TOKEN@github\.com|[^@]+@(users\.noreply\.github\.com|example\.(com|dev)|personal\.dev|github\.acme\.com))$' || true)"
+          if [ -n "$found" ]; then
+            echo "::error::unexpected email address in the tree: $found"
+            exit 1
+          fi

@@ -121,7 +121,10 @@ run_suite() {
 	out="$(sgh switch work-acct 2>&1)"
 	has "switch without the hook explains itself" "needs the shell hook" "$out"
 	is "switch without the hook exits non-zero" "1" \
-		"$(sgh switch work-acct >/dev/null 2>&1; printf '%s' "$?")"
+		"$(
+			sgh switch work-acct >/dev/null 2>&1
+			printf '%s' "$?"
+		)"
 
 	# --- import ---
 	out="$(s 'sgh import')"

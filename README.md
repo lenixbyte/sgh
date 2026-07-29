@@ -1,20 +1,32 @@
-# sgh
+<h1 align="center">sgh</h1>
 
-**A different GitHub account in every terminal.**
+<p align="center">
+  <strong>A different GitHub account in every terminal.</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/lenixbyte/sgh/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lenixbyte/sgh/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/lenixbyte/sgh/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/lenixbyte/sgh?color=blue"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Shells" src="https://img.shields.io/badge/shell-bash%20%7C%20zsh%20%7C%20fish-lightgrey">
+</p>
+
+---
 
 The GitHub CLI keeps one active account in `~/.config/gh/hosts.yml`. So when you
-`gh auth switch` in one terminal, every other terminal switches too — your work
+`gh auth switch` in one terminal, **every other terminal switches too** — your work
 window quietly becomes your personal account halfway through a `gh pr create`.
 
 `sgh` gives each account its own gh config directory and selects it with
-`$GH_CONFIG_DIR`, which is per-shell. Two terminals, two identities, no fighting.
+`$GH_CONFIG_DIR`, which is per-process. Two terminals, two identities, no fighting.
 
 ```console
-$ sgh switch work            # terminal 1
-work → octocat-work
+# terminal 1                          # terminal 2
+$ sgh switch work                     $ sgh switch personal
+work → octocat-work                   personal → octocat
 
-$ sgh switch personal        # terminal 2 — terminal 1 is untouched
-personal → octocat
+$ gh repo create internal-thing       $ gh repo create side-project
+✓ Created repository at work          ✓ Created repository personally
 ```
 
 ## Install
@@ -23,59 +35,80 @@ personal → octocat
 curl -fsSL https://raw.githubusercontent.com/lenixbyte/sgh/main/install.sh | sh
 ```
 
-Then open a new terminal and turn your existing logins into profiles:
+Open a new terminal, then adopt the accounts you are already logged in to:
 
 ```sh
 sgh import
 ```
 
-Your tokens are reused, so there is nothing to log in to again.
+Existing tokens are reused, so there is nothing to log in to again.
 
 <details>
-<summary>Other ways to install</summary>
+<summary><strong>Homebrew, manual, and other options</strong></summary>
 
-**From a checkout**
+**Homebrew**
+
+```sh
+brew install lenixbyte/tap/sgh
+```
+
+Then add the hook to your shell rc (the formula prints this too):
+
+```sh
+eval "$(sgh init zsh)"      # bash: sgh init bash · fish: sgh init fish | source
+```
+
+**Manual** — sgh is a single POSIX shell script with no dependencies beyond `gh`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/lenixbyte/sgh/main/bin/sgh -o ~/.local/bin/sgh
+chmod +x ~/.local/bin/sgh
+echo 'eval "$(sgh init zsh)"' >> ~/.zshrc
+```
+
+**From source**
 
 ```sh
 git clone https://github.com/lenixbyte/sgh.git && ./sgh/install.sh
 ```
 
-**By hand** — sgh is one file. Put it anywhere and source it from your shell rc:
-
-```sh
-echo '. /path/to/sgh.sh' >> ~/.zshrc     # or ~/.bashrc
-```
-
 **Uninstall**
 
 ```sh
-./install.sh --uninstall     # or just delete the block from your rc
+curl -fsSL https://raw.githubusercontent.com/lenixbyte/sgh/main/install.sh | sh -s -- --uninstall
 ```
 
-Profiles in `~/.config/sgh` are kept.
+Your profiles in `~/.config/sgh` are kept.
 
 </details>
 
-Requires [`gh`](https://cli.github.com) and bash or zsh. macOS, Linux and WSL.
+**Requirements:** [`gh`](https://cli.github.com), and bash, zsh or fish.
+macOS, Linux, BSD and WSL.
 
-## Use
+### Why the `init` line?
 
-```
-sgh list                       Show every profile; * marks this terminal's
-sgh switch <name>              Point THIS terminal at a profile
-sgh switch none                Fall back to the plain gh config
-sgh who [-q]                   Show the account this terminal is using
-sgh add <name>                 Create a profile and log in to it
-sgh add <name> --link <login>  Create a profile from an account already in
-                               your keyring — no new login
-sgh delete <name> [--logout]   Remove a profile
-sgh default [<name>|--clear]   Profile that new terminals start as
-sgh exec <name> -- <cmd>       Run one command as that account, no switching
-sgh import                     Turn your existing gh logins into profiles
-sgh path                       Print the gh config dir this terminal uses
-```
+`sgh switch` has to change the environment of the shell you are typing in, and no
+program can do that to its parent — not a shell script, not a Go binary. `sgh init`
+prints a small wrapper function that evals what sgh tells it. Every other command works
+without the hook. (This is the same mechanism `direnv`, `zoxide` and `fnm` use.)
 
-`use` works as an alias for `switch`, `rm` for `delete`, `ls` for `list`.
+## Usage
+
+| Command | What it does |
+| --- | --- |
+| `sgh list` | Show every profile; `*` marks this terminal's |
+| `sgh switch <name>` | Point **this** terminal at a profile |
+| `sgh switch none` | Fall back to the plain gh config |
+| `sgh who [-q]` | Show the account this terminal is using |
+| `sgh add <name>` | Create a profile and log in to it |
+| `sgh add <name> --link <login>` | Create a profile from an account already in your keyring |
+| `sgh delete <name> [--logout]` | Remove a profile |
+| `sgh default [<name>]` | Profile that new terminals start as |
+| `sgh exec <name> -- <cmd>` | Run one command as that account, without switching |
+| `sgh import` | Turn your existing gh logins into profiles |
+| `sgh init <shell>` | Print the shell hook |
+
+`use` is an alias for `switch`, `rm` for `delete`, `ls` for `list`.
 
 ```console
 $ sgh list
@@ -87,51 +120,25 @@ $ sgh list
   * = active in this terminal
 ```
 
-Run something as another account without switching:
+Run something as another account without switching — handy in scripts and CI:
 
 ```sh
 sgh exec personal -- gh repo list
 sgh exec work -- git push
 ```
 
+Full guide: **[docs/usage.md](docs/usage.md)**.
+
 ## What it covers
 
-- **`gh` commands** — everything reads the profile's config dir.
-- **`git clone` / `push` / `pull` over https** — gh installs itself as git's
-  credential helper, and it inherits the same environment.
-- **GitHub Enterprise** — profiles are per host, so `sgh add client --host
-  github.acme.com` works alongside github.com ones.
+- **`gh` commands** — everything reads the active profile's config directory.
+- **`git clone` / `push` / `pull` over https** — gh installs itself as git's credential
+  helper, and it inherits the same environment.
+- **GitHub Enterprise** — profiles are per host: `sgh add client --host github.acme.com`
+  lives happily beside github.com profiles.
 
-**SSH remotes are not affected.** With `git@github.com:…` your SSH key decides
-who you are, not gh. Use https remotes, or set up per-account keys in
-`~/.ssh/config`.
-
-## Nice to have
-
-**Show the profile in your prompt** so you always know which account a terminal
-is holding:
-
-```sh
-# zsh
-RPROMPT='$(sgh who -q)'
-
-# bash
-PS1="$PS1\$(sgh who -q) "
-```
-
-**A git identity per profile.** Anything in
-`~/.config/sgh/profiles/<name>/env.sh` is sourced when you switch:
-
-```sh
-export GIT_AUTHOR_EMAIL=you@personal.dev
-export GIT_COMMITTER_EMAIL=you@personal.dev
-```
-
-Define the same variables in every profile — a variable set by one profile is
-not unset by switching to a profile that does not mention it.
-
-**`sgh switch` with no arguments** opens an [fzf](https://github.com/junegunn/fzf)
-picker, if you have fzf.
+**SSH remotes are not affected.** With `git@github.com:…` your SSH key decides who you
+are, not gh. Use https remotes, or per-account keys in `~/.ssh/config`.
 
 ## How it works
 
@@ -141,34 +148,43 @@ picker, if you have fzf.
 └── profiles/
     ├── work/
     │   ├── gh/             ← a complete gh config dir; $GH_CONFIG_DIR points here
-    │   └── env.sh          optional, sourced on switch
+    │   └── env.sh          optional, sourced on switch (env.fish for fish)
     └── personal/
 ```
 
-`sgh switch` exports `GH_CONFIG_DIR`. That is the whole trick — environment
-variables are per-process, so each terminal gets its own answer to "who am I?"
-while gh's own `hosts.yml` stays out of it.
+`sgh switch` exports `GH_CONFIG_DIR`. That is the whole trick — environment variables
+are per-process, so each terminal gets its own answer to "who am I?" while gh's own
+`hosts.yml` stays out of it.
 
-Tokens are not copied around. They stay wherever gh put them: your OS keyring on
-most setups, or inside the profile's own `hosts.yml` if gh was storing tokens in
-files. `sgh delete` leaves credentials alone unless you pass `--logout`, because
-two profiles can point at the same account.
+Tokens are never copied around. They stay wherever gh put them: your OS keyring on most
+setups, or inside the profile's own `hosts.yml` if gh was configured to store tokens in
+files. See **[docs/how-it-works.md](docs/how-it-works.md)**.
 
-`sgh` must be **sourced, not executed** — a child process cannot change the
-environment of the shell you are typing in. That is why it is a shell function
-and not a binary, and it is the same reason `nvm` and `sphp` work this way.
+## Alternatives
 
-## Development
+sgh is not the only way to do this, and it is not always the right one:
+
+| If you want | Use |
+| --- | --- |
+| One account at a time, switched occasionally | [`gh auth switch`](https://cli.github.com/manual/gh_auth_switch) — built in, no extra tool |
+| The account chosen by **which directory** you are in | [direnv with `GH_CONFIG_DIR`](https://knpw.rs/blg/multiple-gh-users/) |
+| The account chosen by **which terminal** you are in | **sgh** |
+| A gh extension that manages config dirs | [`gh-multi-account`](https://github.com/matthew-cline/gh-multi-account) |
+
+**Why isn't this a gh extension?** Extensions run as subprocesses, so they cannot change
+your shell's environment — `switch` would be impossible. More in
+**[docs/faq.md](docs/faq.md)**.
+
+## Contributing
+
+Issues and pull requests are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)**. The
+test suite runs against a throwaway config with a stub `gh`, so it never touches your
+real accounts:
 
 ```sh
-tests/test.sh                       # runs the suite under bash and zsh
-SHELLS="bash zsh dash" tests/test.sh
-shellcheck sgh.sh install.sh
+SHELLS="bash zsh dash fish" tests/test.sh
 ```
-
-The suite runs against a throwaway `$SGH_HOME` with a stub `gh`, so it never
-touches your real accounts, keyring, or the network.
 
 ## License
 
-MIT
+[MIT](LICENSE)
