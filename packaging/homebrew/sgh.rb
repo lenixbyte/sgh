@@ -1,11 +1,10 @@
 # Template for the Homebrew tap at lenixbyte/homebrew-tap.
-# The release workflow fills in @VERSION@, @URL@ and @SHA@ and pushes the result.
+# The release workflow fills in @URL@ and @SHA@ and pushes the result.
 class Sgh < Formula
-  desc "A different GitHub account in every terminal"
+  desc "Per-terminal GitHub account switching for the gh CLI"
   homepage "https://github.com/lenixbyte/sgh"
   url "@URL@"
   sha256 "@SHA@"
-  version "@VERSION@"
   license "MIT"
 
   depends_on "gh"
