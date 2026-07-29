@@ -182,8 +182,10 @@ for rc in $(rc_files); do
 	{
 		printf '%s\n' "$BEGIN"
 		printf '# a different GitHub account in every terminal — https://github.com/%s\n' "$REPO"
-		case "$DEST" in
-		*/.local/bin) path_for "$rc" "$DEST" ;;
+		# Any install dir that is not already on PATH, not just ~/.local/bin.
+		case ":$PATH:" in
+		*":$DEST:"*) ;;
+		*) path_for "$rc" "$DEST" ;;
 		esac
 		hook_for "$rc"
 		printf '%s\n' "$END"
