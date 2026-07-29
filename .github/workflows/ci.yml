@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shells
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y zsh dash shellcheck
+          else
+            brew install shellcheck
+          fi
+
+      - name: Lint
+        run: shellcheck sgh.sh install.sh tests/test.sh
+
+      - name: Test
+        run: SHELLS="bash zsh dash" tests/test.sh
+
+      - name: Installer round-trip
+        run: |
+          export HOME="$(mktemp -d)" SHELL=/bin/bash
+          touch "$HOME/.bashrc"
+          ./install.sh
+          grep -q 'sgh.sh' "$HOME/.bashrc"
+          bash -c '. "$HOME/.bashrc"; sgh version'
+          ./install.sh --uninstall
+          ! grep -q 'sgh.sh' "$HOME/.bashrc"
