@@ -386,6 +386,7 @@ __sgh_cmd_exec() {
 	# A subshell, not a `VAR=x cmd` prefix: prefix assignments persist when the
 	# command turns out to be a shell builtin, which would leak the profile
 	# into the caller's terminal.
+	# shellcheck disable=SC2030  # scoping these to the subshell is the point
 	(
 		GH_CONFIG_DIR="$(__sgh_gh_dir "$name")"
 		SGH_PROFILE="$name"
@@ -484,6 +485,7 @@ sgh() {
 	local cmd="${1:-who}"
 	[ $# -gt 0 ] && shift
 
+	# shellcheck disable=SC2031  # exec's subshell deliberately does not touch ours
 	case "$cmd" in
 	ls | list) __sgh_cmd_list "$@" ;;
 	use | switch | sw) __sgh_cmd_switch "$@" ;;
@@ -506,6 +508,7 @@ sgh() {
 
 # ── completion ────────────────────────────────────────────────────────
 
+# shellcheck disable=SC2034  # read by the eval'd completion functions below
 SGH_COMMANDS="list switch who add delete default exec import path help version"
 
 if [ -n "${BASH_VERSION:-}" ]; then
@@ -549,6 +552,7 @@ mkdir -p "$SGH_HOME/profiles" 2>/dev/null
 
 # New shells start on the default profile unless the parent shell already chose
 # one — so a switch survives subshells, tmux panes and `exec zsh`.
+# shellcheck disable=SC2031  # this is the shell's own SGH_PROFILE, not exec's
 if [ -z "${SGH_PROFILE:-}" ] && [ "${SGH_AUTO_DEFAULT:-1}" = 1 ]; then
 	__sgh_boot="$(__sgh_default)"
 	if [ -n "$__sgh_boot" ] && [ -d "$SGH_HOME/profiles/$__sgh_boot" ]; then

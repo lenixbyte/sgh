@@ -4,6 +4,7 @@
 #
 #   tests/test.sh            run under the current shell
 #   SHELLS="bash zsh" tests/test.sh
+# shellcheck disable=SC2016  # the single-quoted snippets are code for child shells
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -113,8 +114,9 @@ run_suite() {
 	has "imports keyring account" "work-acct" "$out"
 	has "imports file-token account" "personal-acct" "$out"
 	has "imports enterprise account" "enterprise-acct" "$out"
-	[ -f "$SGH_HOME/profiles/work-acct/gh/hosts.yml" ] &&
-		ok "import wrote hosts.yml" || no "import wrote hosts.yml"
+	if [ -f "$SGH_HOME/profiles/work-acct/gh/hosts.yml" ]; then
+		ok "import wrote hosts.yml"
+	else no "import wrote hosts.yml"; fi
 	is "import kept the enterprise host" "github.acme.com:" \
 		"$(head -n 1 "$SGH_HOME/profiles/enterprise-acct/gh/hosts.yml")"
 	has "file-stored token carried over" "gho_filetoken123" \
@@ -175,8 +177,9 @@ run_suite() {
 
 	out="$(s 'sgh add "../escape" --link x')"
 	has "path traversal refused" "usage: sgh add" "$out"
-	[ -d "$SGH_HOME/profiles/../escape" ] &&
-		no "path traversal refused (nothing created)" || ok "traversal created nothing"
+	if [ -d "$SGH_HOME/profiles/../escape" ]; then
+		no "traversal created nothing"
+	else ok "traversal created nothing"; fi
 
 	out="$(s 'sgh add fresh')"
 	has "add without --link runs gh auth login" "auth login" "$(cat "$SGH_CALLS")"
@@ -201,13 +204,16 @@ run_suite() {
 	# --- delete ---
 	out="$(s 'sgh delete ci --yes')"
 	has "delete confirms" "Deleted profile 'ci'" "$out"
-	[ -d "$SGH_HOME/profiles/ci" ] && no "delete removed the dir" || ok "delete removed the dir"
+	if [ -d "$SGH_HOME/profiles/ci" ]; then
+		no "delete removed the dir"
+	else ok "delete removed the dir"; fi
 	out="$(s 'sgh delete ci --yes')"
 	has "deleting a missing profile errors" "no such profile" "$out"
 	out="$(s 'sgh delete fresh </dev/null')"
 	has "delete without a tty refuses" "refusing to delete" "$out"
-	[ -d "$SGH_HOME/profiles/fresh" ] && ok "refused delete kept the profile" ||
-		no "refused delete kept the profile"
+	if [ -d "$SGH_HOME/profiles/fresh" ]; then
+		ok "refused delete kept the profile"
+	else no "refused delete kept the profile"; fi
 
 	out="$(s 'sgh nonsense')"
 	has "unknown command errors" "unknown command" "$out"
