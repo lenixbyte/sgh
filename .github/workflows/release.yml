@@ -74,7 +74,7 @@ jobs:
           subject-path: sgh-${{ steps.v.outputs.version }}.tar.gz
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.v.outputs.tag }}
           body_path: notes.md
