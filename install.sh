@@ -126,7 +126,9 @@ here="$(dirname "$0" 2>/dev/null || echo .)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/sgh-install.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
-if [ -f "$here/bin/sgh" ]; then
+# $0 is not a real file when this is piped from curl, and $here would then be the
+# caller's cwd — which must not be mistaken for a checkout.
+if [ -f "$0" ] && [ -f "$here/bin/sgh" ]; then
 	cp "$here/bin/sgh" "$tmp/sgh"
 	say "Installing from this checkout"
 else
