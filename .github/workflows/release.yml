@@ -19,7 +19,7 @@ jobs:
     name: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve version
         id: v
@@ -89,7 +89,7 @@ jobs:
     # Set SGH_TAP_TOKEN (a PAT with contents:write on the tap repo) to enable this.
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Render and push the formula
         env:
